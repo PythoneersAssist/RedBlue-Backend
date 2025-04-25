@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from sqlalchemy import MetaData
-from database.database import get_db, ENGINE
-from database.models import Match, Base
 
-from utils import generator
+from sqlalchemy import MetaData
+from database.database import ENGINE
+from database.models import Base
+
+# Removed unused import
 from api import endpoints
 
 

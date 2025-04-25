@@ -4,17 +4,17 @@ from typing import List, Dict
 class ConnectionManager:
     def __init__(self):
         # Stores active WebSocket connections for each game session
-        self.active_connections: Dict[str, Dict[WebSocket, int]] = {}
+        self.active_connections = {}
 
-    async def connect(self, game_code: str, websocket: WebSocket):
-        await websocket.accept()
+    async def connect(self, game_code: str, player_name: str):
         if game_code not in self.active_connections:
             self.active_connections[game_code] = {}
-        self.active_connections[game_code][websocket] = 0  # Initialize choice to 0 or any default value
-
-    def disconnect(self, game_code: str, websocket: WebSocket):
+        self.active_connections[game_code][player_name] = 0  # Initialize choice to 0 or any default value
+        print(self.active_connections[game_code])
+        
+    def disconnect(self, game_code: str, player_name: str):
         if game_code in self.active_connections:
-            del self.active_connections[game_code][websocket]
+            del self.active_connections[game_code][player_name]
             if not self.active_connections[game_code]:
                 del self.active_connections[game_code]
 
@@ -24,24 +24,23 @@ class ConnectionManager:
             for connection in self.active_connections[game_code]:
                 await connection.send_json(message)
     
-    async def get_websocket(self,game_code: str, websocket: WebSocket):
+    async def get_websocket(self,game_code: str, player_name: str):
         """
         Get the WebSocket connection for a specific game session.
         """
         if game_code in self.active_connections:
             for connection in self.active_connections[game_code]:
-                if connection == websocket:
+                if connection == player_name:
                     return connection
         pass
     
-    async def store_choice(self, game_code: str, websocket: WebSocket):
+    async def store_choice(self, game_code: str, player_name: str):
         """
         Store the player's choice for the current round.
         """
         if game_code in self.active_connections:
-            for connection in self.active_connections[game_code]:
-                if connection == websocket:
-                    self.active_connections[game_code][websocket] = 1
+            print(f"Set the choice to 1 for: {player_name}")
+            self.active_connections[game_code][player_name] = 1
 
     async def has_choice(self, game_code: str):
         """
@@ -50,6 +49,7 @@ class ConnectionManager:
         if game_code in self.active_connections:
             for connection in self.active_connections[game_code]:
                 if self.active_connections[game_code][connection] == 0:
+                    #print(f"Connection: {connection.client} : {self.active_connections[game_code][connection]}")
                     return False
         print("Looks like user has made a choice")
         return True

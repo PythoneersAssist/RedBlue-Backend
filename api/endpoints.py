@@ -50,7 +50,8 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
     Clients can send JSON messages to pick a number or send a chat message.
     """
     match = db.query(Match).filter(Match.id == game_code).first()
-
+    p1_cleared = False
+    p2_cleared = False
     if not match:
         print("[INFO] Game not found.")
         await websocket.close(code=1003)
@@ -61,7 +62,8 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
         await websocket.close(code=1003)
         return
 
-    await manager.connect(game_code, websocket)
+    await manager.connect(game_code, playerName)
+    await websocket.accept()
     print(f"[INFO] Player {playerName} connected to game {game_code}.")
 
     if not match.player1 == playerName:
@@ -80,6 +82,8 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
                 await asyncio.sleep(1)
 
         for round_number in range(1, rounds + 1):
+            match.ready_for_next_round = False
+
             await websocket.send_json({"message": f"Round {round_number}: Pick a color (0 for Red, 1 for Blue)"})
 
             if playerName == match.player1:
@@ -89,14 +93,11 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
                     await websocket.send_json({"error": "Invalid choice. Must be 0 or 1."})
                     continue
 
-                await manager.store_choice(game_code, websocket)
+                await manager.store_choice(game_code, match.player1)
                 match.player1_choice_history += str(player1_choice)
+                match.player1_has_finished_round = True
                 db.commit()
-
-                if not await manager.has_choice(game_code):
-                    await websocket.send_json({"message": "Waiting for the other player to choose..."})
-                    while not await manager.has_choice(game_code):
-                        await asyncio.sleep(1)
+                        
 
             elif playerName == match.player2:
                 player2_choice = await websocket.receive_json()
@@ -105,17 +106,24 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
                     await websocket.send_json({"error": "Invalid choice. Must be 0 or 1."})
                     continue
 
-                await manager.store_choice(game_code, websocket)
+                await manager.store_choice(game_code, match.player2)
                 match.player2_choice_history += str(player2_choice)
+                match.player2_has_finished_round = True
                 db.commit()
 
-                if not await manager.has_choice(game_code):
-                    await websocket.send_json({"message": "Waiting for the other player to choose..."})
-                    while not await manager.has_choice(game_code):
-                        await asyncio.sleep(1)
-
+            if match.player1_has_finished_round and match.player2_has_finished_round:
+                match.ready_for_next_round = True
+                db.commit()
+            
+            while not match.ready_for_next_round:
+                await websocket.send_json({"message": "Waiting for both players to finish the round."})
+                db.refresh(match)
+                await asyncio.sleep(1)
+            
+            match.player1_has_finished_round = False
+            match.player2_has_finished_round = False
+            db.commit()
             await manager.clear_choices(game_code)
-
             calculate_score = generator.calculate_score(match.player1_choice_history[-1], match.player2_choice_history[-1])
             match.player1_score += calculate_score[0]
             match.player2_score += calculate_score[1]

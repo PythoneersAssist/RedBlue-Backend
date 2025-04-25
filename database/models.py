@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UUID
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UUID, BOOLEAN
 from sqlalchemy.orm import relationship, DeclarativeBase
 from database.database import BASE
 
@@ -17,4 +17,7 @@ class Match(Base):
     player1_choice_history = Column(String, nullable=True, default="-1")
     player2_choice_history = Column(String, nullable=True, default="-1")
     round = Column(Integer, nullable=False, default=1)
+    player1_has_finished_round = Column(BOOLEAN, nullable=False, default=False)
+    player2_has_finished_round = Column(BOOLEAN, nullable=False, default=False)
+    ready_for_next_round = Column(BOOLEAN, nullable=False, default=False)
 
