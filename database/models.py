@@ -9,6 +9,7 @@ class Base(DeclarativeBase):
 
 class Match(Base):
     __tablename__ = "match"
+    uuid = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, nullable=False, unique=True)
     id = Column(Integer, primary_key=True, nullable=False, unique=True, index=True)
     player1 = Column(String)
     player2 = Column(String, nullable=True)
@@ -20,4 +21,6 @@ class Match(Base):
     player1_has_finished_round = Column(BOOLEAN, nullable=False, default=False)
     player2_has_finished_round = Column(BOOLEAN, nullable=False, default=False)
     ready_for_next_round = Column(BOOLEAN, nullable=False, default=False)
+    game_state = Column(String, nullable=False, default="created")
+
 

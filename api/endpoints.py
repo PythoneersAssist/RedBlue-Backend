@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from utils import generator
-from api.models import CreateGameModel, DeleteGameModel
+from api.models import *
 from api.manager import ConnectionManager
 from sqlalchemy.orm import Session
 
@@ -8,7 +8,7 @@ from database.database import get_db
 from database.models import Match
 import asyncio
 
-router = APIRouter(prefix="/game", tags=["game"])
+router = APIRouter(tags=["game"])
 manager = ConnectionManager()
 
 @router.post("/")
@@ -30,6 +30,7 @@ def create_game( model: CreateGameModel, db: Session = Depends(get_db),) -> dict
     db.commit()
     
     return {
+        "ok": True,
         "code": code,
     }
 
@@ -146,3 +147,83 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
         await websocket.send_json({"error": str(e)})
         manager.disconnect(game_code,websocket)
         await websocket.close(code=1003)
+
+
+@router.get("/games")
+async def get_games(
+    page_size: int = Query(default=10, ge=1, le=100),
+    page_number: int = Query(default=1, ge=1),
+    game_state: str = None,
+    game_code: int = None,
+    db: Session = Depends(get_db)
+    ):
+    """
+    Get a list of all active games.
+    """
+    games = db.query(Match).all()
+
+    if game_state:
+        games = [game for game in games if game.game_state == game_state]
+    if game_code:
+        games = [game for game in games if game.id == game_code]
+
+    if not games:
+        return {
+            "ok": True,
+            "games": [],
+        }
+
+    total_games = len(games)
+    total_pages = (total_games + page_size - 1) // page_size
+
+    if page_number > total_pages:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    start = (page_number - 1) * page_size
+    end = start + page_size
+    paginated_games = games[start:end]
+
+    paginated_games = [
+        {
+            "player1": game.player1,
+            "player1_score": game.player1_score,
+            "player2": game.player2,
+            "player2_score": game.player2_score,
+            "game_state": game.game_state,
+        }
+        for game in paginated_games
+    ]
+    return {
+        "ok": True,
+        "games": paginated_games,
+        "total_games": total_games,
+        "total_pages": total_pages,
+        "current_page": page_number,
+    }
+
+@router.post("/game")
+async def fetch_game_details(
+    model: GetGameModel,
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch details of a specific game using its game code.
+    """
+    game = db.query(Match).filter(Match.uuid == model.uuid).first()
+
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    game_details = {
+        "game_code": game.id,
+        "player1": game.player1,
+        "player2": game.player2,
+        "player1_score": game.player1_score,
+        "player2_score": game.player2_score,
+        "round": game.round,
+        "game_state": game.game_state,
+    }
+    return {
+        "ok": True,
+        "game": game_details
+    }
