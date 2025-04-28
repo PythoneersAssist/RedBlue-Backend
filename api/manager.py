@@ -1,27 +1,31 @@
-from fastapi import WebSocket
-from typing import List, Dict
+from uuid import uuid4
 
 class ConnectionManager:
     def __init__(self):
         # Stores active WebSocket connections for each game session
         self.active_connections = {}
+        self.reconenction_ids = {}
+        self.sockets = {}
 
-    async def connect(self, game_code: str, player_name: str):
+    async def connect(self, game_code: str, player_name: str, websocket):
         if game_code not in self.active_connections:
             self.active_connections[game_code] = {}
-        self.active_connections[game_code][player_name] = 0  # Initialize choice to 0 or any default value
+            self.reconenction_ids[game_code] = {}
+            self.sockets[game_code] = []
+        self.active_connections[game_code][player_name] = 0 
+        if not player_name in self.reconenction_ids[game_code]:
+            self.reconenction_ids[game_code][player_name] =  uuid4()
+        self.sockets[game_code].append(websocket) # Initialize choice to 0 or any default value
         print(self.active_connections[game_code])
         
-    def disconnect(self, game_code: str, player_name: str):
-        if game_code in self.active_connections:
-            del self.active_connections[game_code][player_name]
-            if not self.active_connections[game_code]:
-                del self.active_connections[game_code]
+    def disconnect(self, game_code: str, websocket):
+        if game_code in self.sockets:
+            self.sockets[game_code].remove(websocket)
 
     async def broadcast(self, game_code: str, message: dict):
         """Broadcast a message to all connections in a given game session."""
-        if game_code in self.active_connections:
-            for connection in self.active_connections[game_code]:
+        if game_code in self.sockets:
+            for connection in self.sockets[game_code]:
                 await connection.send_json(message)
     
     async def get_websocket(self,game_code: str, player_name: str):

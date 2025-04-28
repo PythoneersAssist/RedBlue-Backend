@@ -5,7 +5,6 @@ from sqlalchemy import MetaData
 from database.database import ENGINE
 from database.models import Base
 
-# Removed unused import
 from api import endpoints
 
 
