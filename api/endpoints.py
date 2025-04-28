@@ -123,13 +123,19 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
             db.refresh(match)
             match.ready_for_next_round = False
 
-            await websocket.send_json({"message": f"Round {round_number}: Pick a color (0 for Red, 1 for Blue)"})
+            await websocket.send_json(
+                { 
+                    "event": "game_round_start",
+                    "round": round_number,
+                    "message": f"Round {round_number} has started. Awaiting user input.",
+                }
+            )
 
             if playerName == match.player1:
                 player1_choice = await websocket.receive_json()
 
-                if player1_choice not in [0, 1]:
-                    await websocket.send_json({"error": "Invalid choice. Must be 0 or 1."})
+                while player1_choice not in [0, 1]:
+                    await websocket.send_json({"error": "Invalid choice. Must be 0 or 1. Please try again."})
                     continue
 
                 await manager.store_choice(game_code, match.player1)
@@ -140,7 +146,7 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
             elif playerName == match.player2:
                 player2_choice = await websocket.receive_json()
 
-                if player2_choice not in [0, 1]:
+                while player2_choice not in [0, 1]:
                     await websocket.send_json({"error": "Invalid choice. Must be 0 or 1."})
                     continue
 
@@ -157,10 +163,12 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
                 match.player2_score += calculate_score[1]
                 db.commit()
             
-            while not match.ready_for_next_round:
-                await websocket.send_json({"message": "Waiting for both players to finish the round."})
-                db.refresh(match)
-                await asyncio.sleep(1)
+
+            if not match.ready_for_next_round:    
+                await websocket.send_json({"event": "game_round_wfp", "message": "Waiting for both players to finish the round."})
+                while not match.ready_for_next_round:
+                    db.refresh(match)
+                    await asyncio.sleep(1)
 
             match.player1_has_finished_round = False
             match.player2_has_finished_round = False
@@ -187,7 +195,7 @@ async def join_game(websocket: WebSocket, game_code: str, playerName: str, db: S
             })
 
     except WebSocketDisconnect:
-        print(f"Disconnected because of WebsocketDisconnect.")
+        print("Disconnected because of WebsocketDisconnect.")
         if playerName == match.player1:
             match.player1 = None
         else:
