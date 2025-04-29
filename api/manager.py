@@ -1,33 +1,76 @@
+"""
+ConnectionManager class to manage WebSocket connections for a game session.
+This class handles the following functionalities:
+1. Connect and disconnect players from a game session.
+2. Store and retrieve player choices.
+3. Broadcast messages to all players in a game session.
+4. Check if a game room is full.
+5. Clear player choices at the end of a round.
+6. Handle reconnections and disconnections.
+7. Monitor player disconnects and handle game state accordingly.
+8. Store reconnection tokens for players.
+9. Handle reconnection timers for players.
+"""
+
 from uuid import uuid4
+from datetime import datetime
 
 class ConnectionManager:
+    """
+    Manages WebSocket connections for a game session.
+    Handles player connections, disconnections, and broadcasts messages.
+    """
     def __init__(self):
         # Stores active WebSocket connections for each game session
         self.active_connections = {}
         self.reconenction_ids = {}
         self.sockets = {}
+        self.reconnection_timers = {}
 
     async def connect(self, game_code: str, player_name: str, websocket):
+        """
+        Connect a player to a game session.
+        If the game session does not exist, create a new one.
+        """
         if game_code not in self.active_connections:
             self.active_connections[game_code] = {}
             self.reconenction_ids[game_code] = {}
             self.sockets[game_code] = []
-        self.active_connections[game_code][player_name] = 0 
+            self.reconnection_timers[game_code] = {}
+
+        self.active_connections[game_code][player_name] = 0
         if not player_name in self.reconenction_ids[game_code]:
             self.reconenction_ids[game_code][player_name] =  uuid4()
         self.sockets[game_code].append(websocket) # Initialize choice to 0 or any default value
         print(self.active_connections[game_code])
-        
+
     def disconnect(self, game_code: str, websocket):
+        """
+        Disconnect a player from a game session.
+        If the player is not found, do nothing.
+        """
         if game_code in self.sockets:
             self.sockets[game_code].remove(websocket)
+            self.reconnection_timers[game_code][websocket] = datetime.now()
+
+    async def disconnect_all(self, game_code: str):
+        """
+        Disconnect all players from a game session.
+        This is used when the game is over or when a player has been disconnected for too long.
+        """
+        if game_code in self.sockets:
+            print(self.sockets[game_code])
+            for connection in self.sockets[game_code]:
+                print(f"Disconnecting {connection.client} from game {game_code}")
+                await connection.close(code=1000, reason="Game Over")
+            del self.sockets[game_code]
 
     async def broadcast(self, game_code: str, message: dict):
         """Broadcast a message to all connections in a given game session."""
         if game_code in self.sockets:
             for connection in self.sockets[game_code]:
                 await connection.send_json(message)
-    
+
     async def get_websocket(self,game_code: str, player_name: str):
         """
         Get the WebSocket connection for a specific game session.
@@ -36,14 +79,12 @@ class ConnectionManager:
             for connection in self.active_connections[game_code]:
                 if connection == player_name:
                     return connection
-        pass
-    
+
     async def store_choice(self, game_code: str, player_name: str):
         """
         Store the player's choice for the current round.
         """
         if game_code in self.active_connections:
-            print(f"Set the choice to 1 for: {player_name}")
             self.active_connections[game_code][player_name] = 1
 
     async def has_choice(self, game_code: str):
@@ -53,9 +94,7 @@ class ConnectionManager:
         if game_code in self.active_connections:
             for connection in self.active_connections[game_code]:
                 if self.active_connections[game_code][connection] == 0:
-                    #print(f"Connection: {connection.client} : {self.active_connections[game_code][connection]}")
                     return False
-        print("Looks like user has made a choice")
         return True
 
     async def clear_choices(self, game_code: str):

@@ -1,3 +1,7 @@
+"""
+Utilities for game logic and creation
+"""
+
 import random
 
 
@@ -8,7 +12,7 @@ def generate_random_code(length: int):
     """
     return "".join([str(random.randint(0, 9)) for _ in range(length)])
 
-def calculate_score(playerOne: int, playerTwo: int):
+def calculate_score(player_one: int, player_two: int):
     """
     Calculate the score based on the choices of player one and player two.
     The scoring logic is as follows:
@@ -16,11 +20,11 @@ def calculate_score(playerOne: int, playerTwo: int):
     - If player one chooses red (0) and player two chooses blue (1), player one gets 2 points.
     - If player one chooses blue (1) and player two chooses red (0), player two gets 2 points.
     """
-    if not playerOne and not playerTwo:
+    if not player_one and not player_two:
         return 3, 3
-    if not playerOne and playerTwo:
+    if not player_one and player_two:
         return -6, 6
-    if playerOne and not playerTwo:
+    if player_one and not player_two:
         return  6, -6
-    if playerOne and playerTwo:
+    if player_one and player_two:
         return -3, -3
