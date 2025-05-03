@@ -5,12 +5,13 @@ import asyncio
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session
+from uuid import uuid4
 
 from api.models import GetGameModel
 from api.manager import ConnectionManager
 from asynchronous.game_state_manager import monitor_player_disconnect
 from database.database import get_db
-from database.models import Match
+from database.models import Match, Match_Handler
 from utils import game_utils
 import utils.constants as c
 
@@ -29,10 +30,18 @@ def create_game(db: Session = Depends(get_db)) -> dict:
         print("[INFO] Code already exists, generating a new one...")
         code = game_utils.generate_random_code(7)
 
+    _uuid=uuid4()
+
     match_model = Match(
-        id=code
+        id=code,
+        uuid=_uuid
+    )
+
+    match_handler_model = Match_Handler(
+        uuid=_uuid
     )
     db.add(match_model)
+    db.add(match_handler_model)
     db.commit()
 
     return {
@@ -71,6 +80,8 @@ async def join_game(
         await websocket.send_json({"error": c.NOT_FOUND_MESSAGE})
         await websocket.close(code = 1003, reason =c. NOT_FOUND_MESSAGE)
         return
+
+    match_handler = db.query(Match_Handler).filter(Match_Handler.uuid == match.uuid).first()
 
     if match.player1 and match.player2:
         await websocket.send_json({"error": c.GAME_FULL_MESSAGE})
@@ -169,7 +180,8 @@ async def join_game(
 
         for round_number in range(match.round, rounds + 1):
             db.refresh(match)
-            match.ready_for_next_round = False
+            db.refresh(match_handler)
+            match_handler.ready_for_next_round = False
 
             if round_number in [4,8]:
                 await websocket.send_json(
@@ -183,9 +195,9 @@ async def join_game(
                     match player_choice["event"]:
                         case "chat_accept":
                             if player_name == match.player1:
-                                match.p1_chat_accept = True
+                                match_handler.p1_chat_accept = True
                             else:
-                                match.p2_chat_accept = True
+                                match_handler.p2_chat_accept = True
                             db.commit()
                             await websocket.send_json(
                                 {
@@ -196,7 +208,11 @@ async def join_game(
                             break
 
                         case "chat_decline":
-                            await websocket.broadcast(
+                            if player_name == match.player1:
+                                match_handler.p1_chat_accept = False
+                            else:
+                                match_handler.p2_chat_accept = False
+                            await websocket.send_json(
                                 {
                                     "event" : "chat_declined",
                                     "message" : "Chat request declined."                              
@@ -210,11 +226,11 @@ async def join_game(
                                     "error" : "Unknown event. Please try again."
                                 }
                             )
-                db.refresh(match)
-                print(match.p1_chat_accept, match.p2_chat_accept)
-                if match.p1_chat_accept and match.p2_chat_accept:
-                    match.chat_ready = True
-                    db.commit()
+                db.commit()
+                db.refresh(match_handler)
+                print(match_handler.p1_chat_accept, match_handler.p2_chat_accept)
+                if match_handler.p1_chat_accept and match_handler.p2_chat_accept:
+                    match_handler.chat_ready = True
                     await manager.broadcast(
                         game_code,
                         {
@@ -223,29 +239,37 @@ async def join_game(
                         }
                     )
 
-                if not match.chat_ready:
+                if match_handler.p1_chat_accept is None or match_handler.p2_chat_accept is None:
                     await websocket.send_json(
                         {
                             "event" : "chat_wfp_choice",
                             "message" : "Waiting for all players to make a choice."
                         }
                     )
-                    while not match.chat_ready:
-                        db.refresh(match)
-                        await asyncio.sleep(0.5)
+                    while match_handler.p1_chat_accept is None or match_handler.p2_chat_accept is None:
+                        print(match_handler.p1_chat_accept, match_handler.p2_chat_accept)
                         
-                if match.p1_chat_accept and match.p2_chat_accept:
+                        db.refresh(match_handler)
+                        await asyncio.sleep(0.5)
+
+                    if match_handler.p1_chat_accept is False and match_handler.p2_chat_accept is False:
+                        match_handler.chat_ready = False
+                        match_handler.chat_finished = False
+                        match_handler.p1_chat_accept = None
+                        match_handler.p2_chat_accept = None
+                        db.commit()
+
+                        
+                if match_handler.p1_chat_accept and match_handler.p2_chat_accept:
                     await websocket.send_json(
                         {
                             "event" : "game_hold",
                             "message" : "The game is on hold while the chat session is open."
                         }
                     )
-                    while not match.chat_finished:
-                        db.refresh(match)
+                    while not match_handler.chat_finished:
+                        db.refresh(match_handler)
                         await asyncio.sleep(2)
-
-                db.commit()
 
             await websocket.send_json(
                 {
@@ -254,8 +278,7 @@ async def join_game(
                     "message": c.ROUND_MESSAGE.format(round_number),
                 }
             )
-            match.chat_ready = False
-            match.chat_finished = False
+           
             while True:
                 player_choice = await websocket.receive_json()
 
@@ -292,11 +315,11 @@ async def join_game(
                         if player_name == match.player1:
                             await manager.store_choice(game_code, match.player1)
                             match.player1_choice_history += str(player_choice["content"])
-                            match.player1_has_finished_round = True
+                            match_handler.player1_has_finished_round = True
                         else:
                             await manager.store_choice(game_code, match.player2)
                             match.player2_choice_history += str(player_choice["content"])
-                            match.player2_has_finished_round = True
+                            match_handler.player2_has_finished_round = True
                         break
 
                     case "game_forfeit": # We do not need any content for this event
@@ -323,27 +346,29 @@ async def join_game(
                     
             db.commit()
             if not match.game_state == "finished":
-                if match.player1_has_finished_round and match.player2_has_finished_round:
-                    match.ready_for_next_round = True
+                if match_handler.player1_has_finished_round and match_handler.player2_has_finished_round:
+                    match_handler.ready_for_next_round = True
                     match.round += 1
+                    bonusRound = False if not round_number in [9,10] else True 
                     calculate_score = game_utils.calculate_score(
                         int(match.player1_choice_history[-1]),
-                        int(match.player2_choice_history[-1])
+                        int(match.player2_choice_history[-1]),
+                        bonusRound
                         )
                     match.player1_score += calculate_score[0]
                     match.player2_score += calculate_score[1]
                     db.commit()
 
 
-                if not match.ready_for_next_round:
+                if not match_handler.ready_for_next_round:
                     await websocket.send_json({"event": "game_round_wfp", "message": c.WFP_MESSAGE})
 
-                    while not match.ready_for_next_round:
-                        db.refresh(match)
+                    while not match_handler.ready_for_next_round:
+                        db.refresh(match_handler)
                         await asyncio.sleep(0.1)
 
-            match.player1_has_finished_round = False
-            match.player2_has_finished_round = False
+            match_handler.player1_has_finished_round = False
+            match_handler.player2_has_finished_round = False
             db.commit()
             #await manager.clear_choices(game_code)
             if match.game_state == "finished":
@@ -427,8 +452,17 @@ async def game_chat(
     db: Session = Depends(get_db)
     ):
     match = db.query(Match).filter(Match.id == game_code, Match.game_state == "ongoing").first()
-
     await websocket.accept()
+    
+    if not match:
+        await websocket.send_json(
+            {
+                "error" : "Game not found."
+            }
+        )
+        await websocket.close(code=1003)
+        return
+    match_handler = db.query(Match_Handler.uuid == match.uuid)
 
     if not player_name in [match.player1, match.player2]:
         await websocket.send_json(
@@ -439,7 +473,7 @@ async def game_chat(
         await websocket.close(code=1003)
         return
 
-    if match.p1_chat_accept is False or match.p2_chat_accept is False:
+    if match_handler.p1_chat_accept is False or match_handler.p2_chat_accept is False:
         await websocket.send_json(
             {
                 "error": "Chat session is not open since both players didn't accept the request."
@@ -448,7 +482,7 @@ async def game_chat(
         await websocket.close(code=1003)
         return
 
-    if match.chat_finished:
+    if match_handler.chat_finished:
         await websocket.send_json(
             {
                 "error": "Chat session has already been closed."
@@ -538,7 +572,7 @@ async def game_chat(
                 "message" : "The chat session has finished."
             }
         )
-        match.chat_finished = True
+        match_handler.chat_finished = True
         db.commit()
         await manager.chat_disconnect_all(game_code)
     except WebSocketDisconnect:
@@ -551,7 +585,7 @@ async def game_chat(
                 "message" : "User has disconnected. The chat session will end."
             }
         )
-        match.chat_finished = True
+        match_handler.chat_finished = True
         db.commit()
         await manager.chat_disconnect_all(game_code)
     except Exception as e:
@@ -564,7 +598,7 @@ async def game_chat(
                 "message" : e
             }
         )
-        match.chat_finished = True
+        match_handler.chat_finished = True
         db.commit()
         await manager.chat_disconnect_all(game_code)
 
