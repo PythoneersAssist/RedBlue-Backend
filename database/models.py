@@ -28,3 +28,7 @@ class Match(Base):
     player2_has_finished_round = Column(BOOLEAN, nullable=False, default=False)
     ready_for_next_round = Column(BOOLEAN, nullable=False, default=False)
     game_state = Column(String, nullable=False, default="created")
+    p1_chat_accept = Column(BOOLEAN, default=None)
+    p2_chat_accept = Column(BOOLEAN, default=None)
+    chat_ready = Column(BOOLEAN, nullable=False, default=False)
+    chat_finished = Column(BOOLEAN, nullable=False, default=False)

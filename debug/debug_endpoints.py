@@ -31,6 +31,10 @@ async def reset_game_state(game_code: str, db=Depends(get_db)):
     match.player1_has_finished_round = False
     match.player2_has_finished_round = False
     match.ready_for_next_round = False
+    match.p1_chat_accept = None
+    match.p2_chat_accept = None
+    match.chat_ready = False
+    match.chat_finished = False
     db.commit()
 
     return {"message": "Game state reset successfully"}

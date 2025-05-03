@@ -26,6 +26,7 @@ class ConnectionManager:
         self.reconenction_ids = {}
         self.sockets = {}
         self.reconnection_timers = {}
+        self.chat_sockets = {}
 
     async def connect(self, game_code: str, player_name: str, websocket):
         """
@@ -112,3 +113,36 @@ class ConnectionManager:
         if game_code in self.active_connections:
             return len(self.active_connections[game_code]) == 2
         return False
+
+    async def chat_connect(self, game_code: str, websocket):
+        """
+        Connect a player to a game session.
+        If the game session does not exist, create a new one.
+        """
+        if not game_code in self.chat_sockets:
+            self.chat_sockets[game_code] = []
+        self.chat_sockets[game_code].append(websocket)
+
+    def chat_disconnect(self, game_code: str, websocket):
+        """
+        Disconnect a player from a game session.
+        If the player is not found, do nothing.
+        """
+        if game_code in self.chat_sockets:
+            self.chat_sockets[game_code].remove(websocket)
+
+    async def chat_disconnect_all(self, game_code: str):
+        """
+        Disconnect all players from a game session.
+        This is used when the game is over or when a player has been disconnected for too long.
+        """
+        if game_code in self.chat_sockets:
+            for connection in self.chat_sockets[game_code]:
+                await connection.close(code=1000, reason="Chat has ended.")
+            del self.chat_sockets[game_code]
+
+    async def chat_broadcast(self, game_code: str, message: dict):
+        """Broadcast a message to all connections in a given game session."""
+        if game_code in self.chat_sockets:
+            for connection in self.chat_sockets[game_code]:
+                await connection.send_json(message)
