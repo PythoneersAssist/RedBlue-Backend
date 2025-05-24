@@ -37,3 +37,13 @@ def calculate_score(player_one: int, player_two: int, bonusRound: bool):
         score = (score[0] * 2, score[1] * 2)
 
     return score
+
+def calculate_forfeit_score(abandoned, remained, rounds):
+    scores = [abandoned + (-6 * (10 - rounds)), remained + (6 * (10 - rounds))]
+    scores[0] += -24
+
+    if rounds < 8:
+        scores[0] += 12
+        scores[1] += -12
+        
+    return scores

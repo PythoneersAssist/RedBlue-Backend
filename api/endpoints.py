@@ -78,12 +78,12 @@ async def join_game(
 
     if not match:
         await websocket.send_json({"error": c.NOT_FOUND_MESSAGE})
-        await websocket.close(code = 1003, reason =c. NOT_FOUND_MESSAGE)
+        await websocket.close(code = 1003, reason =c.NOT_FOUND_MESSAGE)
         return
 
     match_handler = db.query(Match_Handler).filter(Match_Handler.uuid == match.uuid).first()
 
-    if match.player1 and match.player2:
+    if match_handler.is_p1_online and match_handler.is_p2_online:
         await websocket.send_json({"error": c.GAME_FULL_MESSAGE})
         await websocket.close(code = 1003, reason = c.GAME_FULL_MESSAGE)
         return
@@ -95,17 +95,17 @@ async def join_game(
             {
                 "event": "game_reconnection_token",
                 "message" : c.RECONNECTION_TOKEN_MESSAGE,
-                "reconnection_token": str(manager.reconenction_ids[game_code][player_name]),}
+                "reconnection_token": str(manager.reconnection_ids[game_code][player_name]),}
             )
-
-    print(f"[INFO] Player {player_name} connected to game {game_code}.")
 
     match match.game_state:
         case "created":
             if not match.player1:
                 match.player1 = player_name
+                match_handler.is_p1_online = True
             else:
                 match.player2 = player_name
+                match_handler.is_p2_online = True
 
         case "ongoing":
             if not token:
@@ -113,21 +113,23 @@ async def join_game(
                 await websocket.close(code=1003, reason= c.GAME_IN_PROGRESS_MESSAGE)
                 return
 
-            if str(manager.reconenction_ids[game_code][player_name]) != token:
+            if str(manager.reconnection_ids[game_code][player_name]) != token:
                 await websocket.send_json({"error": c.INVALID_TOKEN_MESSAGE})
                 #print("[INFO] Tokens: ", manager.reconenction_ids[game_code])
                 await websocket.close(code=1003, reason= c.INVALID_TOKEN_MESSAGE)
                 return
 
-            if (datetime.now() - manager.reconnection_timers[game_code][player_name]).seconds > 2:
+            if (datetime.now() - manager.reconnection_timers[game_code][player_name]).seconds > c.DISCONNECT_TIMEOUT:
                 await websocket.send_json({"error": c.EXPIRED_TOKEN_MESSAGE})
                 await websocket.close(code=1003, reason=c.EXPIRED_TOKEN_MESSAGE)
                 return
 
             if not match.player1:
                 match.player1 = player_name
+                match_handler.is_p1_online = True
             else:
                 match.player2 = player_name
+                match_handler.is_p2_online = True
 
             await websocket.send_json(
                 {
@@ -323,6 +325,26 @@ async def join_game(
                         break
 
                     case "game_forfeit": # We do not need any content for this event
+                        if player_name == match.player1:
+                            abandoned_player = match.player1_score
+                            remaining_player = match.player2_score
+                        else:
+                            abandoned_player = match.player2_score
+                            remaining_player = match.player1_score
+
+                        scores = game_utils.calculate_forfeit_score(
+                            abandoned_player,
+                            remaining_player,
+                            round_number
+                        )
+
+                        if player_name == match.player1:
+                            match.player1_score = scores[0]
+                            match.player2_score = scores[1]
+                        else:
+                            match.player1_score = scores[1]
+                            match.player2_score = scores[0]
+
                         await manager.broadcast(
                             game_code,
                             {
@@ -341,7 +363,11 @@ async def join_game(
                                 "message": c.DISCONNECT_MESSAGE.format(player_name)
                             }
                         )
-                        websocket.close()
+                        if player_name == match.player1:
+                            match_handler.is_p1_online = False
+                        else:
+                            match_handler.is_p2_online = False
+                        await websocket.close()
                         break
                     
             db.commit()
@@ -396,21 +422,27 @@ async def join_game(
                     "winner": winner,
 
                 })
-
+        
         await manager.disconnect_all(game_code)
+        await manager.delete_room(game_code)
     ##############################
     # PLAYER DISCONNECT HANDLING #
     ##############################
 
     except WebSocketDisconnect:
         print("Disconnected because of WebsocketDisconnect.")
+        if manager.reconnection_timers.get(game_code) is None: # this only happens if the async task finished 
+            return                                             # which then triggers an async task for each player
+                                                               # we don't need that
+        manager.reconnection_timers[game_code][player_name] = datetime.now()
+
         if player_name == match.player1:
-            match.player1 = None
+            match_handler.is_p1_online = False
         else:
-            match.player2 = None
+            match_handler.is_p2_online = False
         db.commit()
 
-        if not match.player1 and not match.player2:
+        if not match_handler.is_p1_online and not match_handler.is_p2_online:
             match.game_state = "finished"
             db.commit()
         manager.disconnect(game_code, websocket)
@@ -423,7 +455,7 @@ async def join_game(
         )
 
         asyncio.create_task(
-            monitor_player_disconnect(game_code, db, manager, websocket)
+            monitor_player_disconnect(game_code, db, manager, websocket, player_name)
         )
 
     #pylint: disable=broad-exception-caught
@@ -438,9 +470,9 @@ async def join_game(
             }
         )
         if player_name == match.player1:
-            match.player1 = None
+            match_handler.is_p1_online = False
         else:
-            match.player2 = None
+            match_handler.is_p2_online = False
         db.commit()
         await websocket.close(code=1003)
 

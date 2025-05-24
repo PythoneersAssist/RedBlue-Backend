@@ -39,3 +39,5 @@ class Match_Handler(Base):
     p2_chat_accept = Column(BOOLEAN, default=None)
     chat_ready = Column(BOOLEAN, nullable=False, default=False)
     chat_finished = Column(BOOLEAN, nullable=False, default=False)
+    is_p1_online = Column(BOOLEAN, nullable=False, default=False)
+    is_p2_online = Column(BOOLEAN, nullable=False, default=False)

@@ -23,7 +23,7 @@ class ConnectionManager:
     def __init__(self):
         # Stores active WebSocket connections for each game session
         self.active_connections = {}
-        self.reconenction_ids = {}
+        self.reconnection_ids = {}
         self.sockets = {}
         self.reconnection_timers = {}
         self.chat_sockets = {}
@@ -35,13 +35,13 @@ class ConnectionManager:
         """
         if game_code not in self.active_connections:
             self.active_connections[game_code] = {}
-            self.reconenction_ids[game_code] = {}
+            self.reconnection_ids[game_code] = {}
             self.sockets[game_code] = []
             self.reconnection_timers[game_code] = {}
 
         self.active_connections[game_code][player_name] = 0
-        if not player_name in self.reconenction_ids[game_code]:
-            self.reconenction_ids[game_code][player_name] =  uuid4()
+        if not player_name in self.reconnection_ids[game_code]:
+            self.reconnection_ids[game_code][player_name] =  uuid4()
         self.sockets[game_code].append(websocket) # Initialize choice to 0 or any default value
         print(self.active_connections[game_code])
 
@@ -146,3 +146,16 @@ class ConnectionManager:
         if game_code in self.chat_sockets:
             for connection in self.chat_sockets[game_code]:
                 await connection.send_json(message)
+    
+    async def delete_room(self, game_code: str):
+        """
+        Delete a game room and all associated data.
+        This is used when the game is over or when a player has been disconnected for too long.
+        """
+        if game_code in self.active_connections:
+            del self.active_connections[game_code]
+            del self.reconnection_ids[game_code]
+            del self.sockets[game_code]
+            del self.reconnection_timers[game_code]
+            if game_code in self.chat_sockets:
+                del self.chat_sockets[game_code]
