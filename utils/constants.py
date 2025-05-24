@@ -5,6 +5,7 @@ Module used to store code constants and strings.
 #pylint: disable=line-too-long
 
 DISCONNECT_TIMEOUT = 600 # 10 minutes
+CHAT_ROUND = [5,9]
 
 NOT_FOUND_MESSAGE = "Game not found"
 GAME_FULL_MESSAGE = "Game is full"

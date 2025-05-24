@@ -183,7 +183,7 @@ async def join_game(
             db.refresh(match_handler)
             match_handler.ready_for_next_round = False
 
-            if round_number in [4,8]:
+            if round_number in c.CHAT_ROUND:
                 await websocket.send_json(
                     {
                         "event" : "chat_possibilty",
@@ -252,7 +252,7 @@ async def join_game(
                         db.refresh(match_handler)
                         await asyncio.sleep(0.5)
 
-                    if match_handler.p1_chat_accept is False and match_handler.p2_chat_accept is False:
+                    if match_handler.p1_chat_accept is False or match_handler.p2_chat_accept is False:
                         match_handler.chat_ready = False
                         match_handler.chat_finished = False
                         match_handler.p1_chat_accept = None
@@ -462,7 +462,7 @@ async def game_chat(
         )
         await websocket.close(code=1003)
         return
-    match_handler = db.query(Match_Handler.uuid == match.uuid)
+    match_handler = db.query(Match_Handler).filter(Match_Handler.uuid == match.uuid).first()
 
     if not player_name in [match.player1, match.player2]:
         await websocket.send_json(
