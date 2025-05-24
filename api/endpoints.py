@@ -183,7 +183,7 @@ async def join_game(
         for round_number in range(match.round, rounds + 1):
             db.refresh(match)
             db.refresh(match_handler)
-            match_handler.ready_for_next_round = False
+            
 
             if round_number in c.CHAT_ROUND:
                 await websocket.send_json(
@@ -228,9 +228,11 @@ async def join_game(
                                     "error" : "Unknown event. Please try again."
                                 }
                             )
+
                 db.commit()
                 db.refresh(match_handler)
-                print(match_handler.p1_chat_accept, match_handler.p2_chat_accept)
+
+
                 if match_handler.p1_chat_accept and match_handler.p2_chat_accept:
                     match_handler.chat_ready = True
                     await manager.broadcast(
@@ -254,13 +256,6 @@ async def join_game(
                         db.refresh(match_handler)
                         await asyncio.sleep(0.5)
 
-                    if match_handler.p1_chat_accept is False or match_handler.p2_chat_accept is False:
-                        match_handler.chat_ready = False
-                        match_handler.chat_finished = False
-                        match_handler.p1_chat_accept = None
-                        match_handler.p2_chat_accept = None
-                        db.commit()
-
                         
                 if match_handler.p1_chat_accept and match_handler.p2_chat_accept:
                     await websocket.send_json(
@@ -273,6 +268,12 @@ async def join_game(
                         db.refresh(match_handler)
                         await asyncio.sleep(2)
 
+
+            match_handler.chat_ready = False
+            match_handler.chat_finished = False
+            match_handler.p1_chat_accept = None
+            match_handler.p2_chat_accept = None
+            match_handler.ready_for_next_round = False
             await websocket.send_json(
                 {
                     "event": "game_round_start",
@@ -423,6 +424,10 @@ async def join_game(
 
                 })
         
+        match_handler.is_p1_online = False
+        match_handler.is_p2_online = False
+        match.game_state = "finished"
+        db.commit()
         await manager.disconnect_all(game_code)
         await manager.delete_room(game_code)
     ##############################
@@ -445,7 +450,7 @@ async def join_game(
         if not match_handler.is_p1_online and not match_handler.is_p2_online:
             match.game_state = "finished"
             db.commit()
-        manager.disconnect(game_code, websocket)
+        manager.disconnect(game_code, websocket, player_name)
         await manager.broadcast(
             game_code,
             {
@@ -461,7 +466,7 @@ async def join_game(
     #pylint: disable=broad-exception-caught
     except Exception as e:
         await websocket.send_json({"error": str(e)})
-        manager.disconnect(game_code, websocket)
+        manager.disconnect(game_code, websocket, player_name)
         await manager.broadcast(
             game_code,
             {

@@ -45,12 +45,13 @@ class ConnectionManager:
         self.sockets[game_code].append(websocket) # Initialize choice to 0 or any default value
         print(self.active_connections[game_code])
 
-    def disconnect(self, game_code: str, websocket):
+    def disconnect(self, game_code: str, websocket, player_name: str):
         """
         Disconnect a player from a game session.
         If the player is not found, do nothing.
         """
         if game_code in self.sockets:
+            self.active_connections[game_code].pop(player_name, None)
             self.sockets[game_code].remove(websocket)
             self.reconnection_timers[game_code][websocket] = datetime.now()
 
@@ -68,6 +69,7 @@ class ConnectionManager:
 
     async def broadcast(self, game_code: str, message: dict):
         """Broadcast a message to all connections in a given game session."""
+
         if game_code in self.sockets:
             for connection in self.sockets[game_code]:
                 await connection.send_json(message)
@@ -154,8 +156,11 @@ class ConnectionManager:
         """
         if game_code in self.active_connections:
             del self.active_connections[game_code]
+        if game_code in self.reconnection_ids:
             del self.reconnection_ids[game_code]
+        if game_code in self.sockets:
             del self.sockets[game_code]
+        if game_code in self.reconnection_timers:
             del self.reconnection_timers[game_code]
-            if game_code in self.chat_sockets:
-                del self.chat_sockets[game_code]
+        if game_code in self.chat_sockets:
+            del self.chat_sockets[game_code]
